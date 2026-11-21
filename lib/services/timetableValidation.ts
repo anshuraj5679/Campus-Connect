@@ -19,6 +19,9 @@ export type DraftEntry = {
   room: string | null;
   type: ClassType;
   lowConfidence?: boolean;
+  /** Section routines name the teacher instead of a section. */
+  teacherId?: string | null;
+  teacherName?: string | null;
 };
 
 /** Published entries of OTHER teachers, used for room / section clash checks. */
@@ -43,8 +46,9 @@ const normRoom = (r: string | null) => (r ?? "").replace(/\s+/g, "").toUpperCase
 
 export function validateTimetable(
   entries: DraftEntry[],
-  ctx: { validPeriods: number[]; otherEntries: OtherEntry[] },
+  ctx: { validPeriods: number[]; otherEntries: OtherEntry[]; /** false for section routines */ requireSection?: boolean },
 ): Issue[] {
+  const requireSection = ctx.requireSection ?? true;
   const issues: Issue[] = [];
   const valid = new Set(ctx.validPeriods);
 
@@ -56,7 +60,7 @@ export function validateTimetable(
     if (!valid.has(e.startPeriod) || !valid.has(e.endPeriod) || e.endPeriod < e.startPeriod || e.dayOfWeek < 1 || e.dayOfWeek > 6) {
       issues.push({ severity: "error", code: "INVALID_PERIOD", message: `${e.subjectName}: invalid day or period (${where(e)}).`, entryIds: [e.id] });
     }
-    if (needsSection(e.type) && !e.sectionId) {
+    if (requireSection && needsSection(e.type) && !e.sectionId) {
       issues.push({ severity: "error", code: "MISSING_SECTION", message: `${e.subjectName} (${where(e)}) needs a section.`, entryIds: [e.id] });
     }
   }

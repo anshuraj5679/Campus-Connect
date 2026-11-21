@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarDays, CalendarX2, Clock, Megaphone, MessageSquareExclamationPoint, Pin, UserSearch } from "lucide-react";
+import { CalendarDays, CalendarX2, Clock, FileText, Megaphone, MessageSquareExclamationPoint, Pin, UserSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeroBanner, PersonAvatar, SectionCard } from "@/components/shared/kit";
 import { StatusChip } from "@/components/shared/status-chip";
@@ -11,6 +11,7 @@ import { getViewer } from "@/lib/data/viewer";
 import { getCalendar } from "@/lib/data/calendar";
 import { getAvailability } from "@/lib/data/availability";
 import { getSectionSchedule } from "@/lib/data/section";
+import { getPublishedRoutine, type RoutineEntry } from "@/lib/data/routines";
 import { listAnnouncements } from "@/lib/data/announcements";
 import { listComplaints } from "@/lib/data/complaints";
 import { formatLongDate, getNow, greetingFor } from "@/lib/datetime";
@@ -30,8 +31,16 @@ export default async function StudentHomePage() {
     return <EmptyState icon={UserSearch} title="Your academic profile is incomplete" description="Ask the college office to link your USN and section." />;
   }
   const parts = istParts(now);
-  const [schedule, notices, complaints] = await Promise.all([getSectionSchedule(s.sectionId), listAnnouncements({ limit: 3 }), listComplaints(viewer, { scope: "student" })]);
-  const teacherIds = [...new Set(schedule.map((e) => e.teacherId))];
+  const [routine, teacherSchedule, notices, complaints] = await Promise.all([
+    getPublishedRoutine(s.sectionId),
+    getSectionSchedule(s.sectionId),
+    listAnnouncements({ limit: 3 }),
+    listComplaints(viewer, { scope: "student" }),
+  ]);
+  // The routine the Cluster Head published for this section wins; otherwise fall back
+  // to the classes teachers published for this section in their own timetables.
+  const schedule: RoutineEntry[] = routine ? routine.entries : teacherSchedule;
+  const teacherIds = [...new Set(schedule.map((e) => e.teacherId).filter((id): id is string => !!id))];
   const availability = await getAvailability(teacherIds, now);
 
   const holiday = holidayOn(parts.date, calendar.holidays);
@@ -46,7 +55,7 @@ export default async function StudentHomePage() {
           const b = slotForPeriod(calendar.periods, e.endPeriod)!;
           const startsAt = istDateTime(parts.date, a.start);
           const endsAt = istDateTime(parts.date, b.end);
-          const av = availability.get(e.teacherId);
+          const av = e.teacherId ? availability.get(e.teacherId) : undefined;
           const cancelled = av?.overrides.some((o) => o.date === parts.date && o.kind === "CANCELLED" && o.period >= e.startPeriod && o.period <= e.endPeriod);
           // Marked "Teacher unavailable" when any active unavailability overlaps the class.
           const unavailable = av ? av.leaves.some((l) => !l.cancelledAt && l.startAt < endsAt && l.endAt > startsAt) : false;
@@ -106,7 +115,11 @@ export default async function StudentHomePage() {
                   </p>
                   <p className="mt-2 line-clamp-2 font-bold leading-snug">{c.subjectName}</p>
                   <p className="text-sm text-muted-foreground">{c.subjectCode} · {c.type === "LAB" ? "Lab" : "Theory"}</p>
-                  <p className="mt-2 text-sm"><Link href={`/teachers/${c.teacherId}`} className="font-medium hover:text-primary hover:underline">{c.teacherName}</Link></p>
+                  {c.teacherName && (
+                    <p className="mt-2 text-sm">
+                      {c.teacherId ? <Link href={`/teachers/${c.teacherId}`} className="font-medium hover:text-primary hover:underline">{c.teacherName}</Link> : <span className="font-medium">{c.teacherName}</span>}
+                    </p>
+                  )}
                   <p className="text-sm font-semibold">Room {c.room ?? "TBA"}</p>
                   {c.cancelled && <p className="mt-2 rounded bg-status-leave px-2 py-0.5 text-xs font-bold text-white">Class cancelled</p>}
                   {!c.cancelled && c.unavailable && <p className="mt-2 rounded bg-status-leave px-2 py-0.5 text-xs font-bold text-white">Teacher unavailable</p>}
@@ -171,7 +184,25 @@ export default async function StudentHomePage() {
         </div>
       </div>
 
-      <SectionCard title={`Section ${s.section} weekly timetable`} icon={CalendarDays} className="mt-5" action={<TypeLegend />}>
+      <SectionCard
+        title={`Section ${s.section} weekly timetable`}
+        icon={CalendarDays}
+        className="mt-5"
+        description={routine ? `Routine from your Cluster Head${routine.publishedAt ? ` · updated ${relativeTime(routine.publishedAt, now)}` : ""}` : undefined}
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            {routine?.fileUrl && (
+              <a href={routine.fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-sm font-semibold text-primary hover:underline">
+                <FileText aria-hidden className="size-4" /> Routine PDF
+              </a>
+            )}
+            <TypeLegend />
+          </div>
+        }
+      >
+        {schedule.length === 0 && (
+          <p className="mb-3 rounded-lg bg-status-busy-bg px-3 py-2 text-sm text-status-busy-fg">Routine not published yet. Your Cluster Head will upload the Section {s.section} routine soon.</p>
+        )}
         <TimetableGrid
           periods={calendar.periods}
           entries={schedule.map((e) => ({ ...e, extra: e.teacherName }))}

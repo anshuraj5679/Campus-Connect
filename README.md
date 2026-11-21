@@ -80,6 +80,19 @@ The seed creates 7 departments (CSE, AIML, CSBS, ECE, EEE, ME, CIVIL). CSE has 4
 
 Anyone can sign up as a **Student** (department + section, USN validated) or **Teacher** (department + cluster). They can also sign up as a **Cluster Head** or **HOD**, but each cluster has exactly one Cluster Head and each department exactly one HOD. Positions already filled are shown as taken, and the server claims the seat atomically (`UPDATE … WHERE head IS NULL`), so two people can never get the same one. Admin is never self-service. The Admin can verify, deactivate or reassign anyone.
 
+### Section routines (Cluster Head)
+
+The Cluster Head opens **Section Routines** and sees every section in their cluster: Published, Draft, or Not uploaded. They can also add a section before any student has joined.
+
+For each section they upload the routine **PDF or photo**:
+- The file goes straight to Storage, and OCR builds a draft grid.
+- Teachers are matched by full name or initials (an ambiguous match is left blank).
+- The Cluster Head reviews every cell next to the original, then publishes.
+
+On publishing, the previous routine is archived. Every student of that section is notified and sees the classes in *Today's classes* and the weekly timetable on their dashboard, with a link to the original PDF.
+
+A section's routine takes precedence over classes that teachers entered in their own timetables. Teachers' timetables still drive their live availability. Data lives in `section_timetables` / `section_timetable_entries` (migration 0007). Drafts are visible only to the section's Cluster Head, HOD and the admin.
+
 ## Demo script (acceptance checklist)
 
 1. **Simulate time**: in the header (demo mode) choose e.g. *Mon 9:30 AM*. Every status, today's classes and SLA timer uses that time.

@@ -16,8 +16,11 @@ import type { PeriodSlot } from "@/lib/services/periods";
 import { DAY_NAMES, summarize, validateTimetable, type DraftEntry, type Issue, type OtherEntry } from "@/lib/services/timetableValidation";
 import { CLASS_TYPES } from "@/lib/validators/timetable";
 import { discardTimetableDraft, publishTimetable, saveTimetableDraft } from "@/lib/actions/timetable";
+import { discardRoutineDraft, publishRoutine, saveRoutineDraft } from "@/lib/actions/routines";
 
 type Section = { id: string; name: string; semester: number; homeRoom: string | null; departmentCode: string };
+/** Routine mode: a Cluster Head edits one section's routine; cells name the teacher instead of a section. */
+export type RoutineContext = { sectionId: string; sectionName: string; homeRoom: string | null; teachers: { id: string; name: string }[] };
 const DAYS = [1, 2, 3, 4, 5, 6];
 const newId = () => `new-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -32,6 +35,7 @@ export function TimetableEditor({
   source = "MANUAL",
   filePath = null,
   onDirtyChange,
+  routine,
 }: {
   periods: PeriodSlot[];
   sections: Section[];
@@ -41,6 +45,7 @@ export function TimetableEditor({
   source?: "MANUAL" | "UPLOAD";
   filePath?: string | null;
   onDirtyChange?: (dirty: boolean) => void;
+  routine?: RoutineContext;
 }) {
   const router = useRouter();
   const [entries, setEntries] = useState<DraftEntry[]>(initialEntries);
@@ -57,7 +62,8 @@ export function TimetableEditor({
   const rows = useMemo(() => [...periods].sort((a, b) => a.sortOrder - b.sortOrder), [periods]);
   const teachingNos = useMemo(() => rows.filter((r) => !r.isBreak).map((r) => r.periodNo!), [rows]);
   const sectionById = useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
-  const issues = useMemo(() => validateTimetable(entries, { validPeriods: teachingNos, otherEntries }), [entries, teachingNos, otherEntries]);
+  const issues = useMemo(() => validateTimetable(entries, { validPeriods: teachingNos, otherEntries: routine ? [] : otherEntries, requireSection: !routine }), [entries, teachingNos, otherEntries, routine]);
+  const teacherByName = useMemo(() => new Map((routine?.teachers ?? []).map((t) => [t.name.toLowerCase(), t])), [routine]);
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.length - errorCount;
   const issueIds = useMemo(() => {
@@ -86,14 +92,17 @@ export function TimetableEditor({
   );
 
   // ---------- dialog ----------
-  function openNew(day: number, from: number, to: number) {
-    setDialogError(null);
-    setEditing({
-      isNew: true,
-      duplicateTo: [],
-      entry: { id: newId(), dayOfWeek: day, startPeriod: Math.min(from, to), endPeriod: Math.max(from, to), subjectCode: "", subjectName: "", sectionId: null, section: null, semester: null, room: "", type: Math.abs(to - from) >= 1 ? "LAB" : "THEORY" },
-    });
-  }
+  const openNew = useCallback(
+    (day: number, from: number, to: number) => {
+      setDialogError(null);
+      setEditing({
+        isNew: true,
+        duplicateTo: [],
+        entry: { id: newId(), dayOfWeek: day, startPeriod: Math.min(from, to), endPeriod: Math.max(from, to), subjectCode: "", subjectName: "", sectionId: routine?.sectionId ?? null, section: routine?.sectionName ?? null, semester: null, room: routine?.homeRoom ?? "", teacherId: null, teacherName: "", type: Math.abs(to - from) >= 1 ? "LAB" : "THEORY" },
+      });
+    },
+    [routine],
+  );
   function openEdit(e: DraftEntry) {
     setDialogError(null);
     setEditing({ isNew: false, duplicateTo: [], entry: { ...e } });
@@ -104,12 +113,15 @@ export function TimetableEditor({
     if (!e.subjectName.trim()) return setDialogError("Enter the subject name.");
     if (e.endPeriod < e.startPeriod) return setDialogError("End period must be the same as or after the start period.");
     const sec = e.sectionId ? sectionById.get(e.sectionId) : null;
-    const cleaned: DraftEntry = { ...e, subjectName: e.subjectName.trim(), subjectCode: e.subjectCode?.trim().toUpperCase() || null, room: e.room?.trim() || null, section: sec?.name ?? null, semester: sec?.semester ?? null, lowConfidence: false };
+    const teacherName = e.teacherName?.trim() || null;
+    const cleaned: DraftEntry = routine
+      ? { ...e, subjectName: e.subjectName.trim(), subjectCode: e.subjectCode?.trim().toUpperCase() || null, room: e.room?.trim() || null, teacherName, teacherId: teacherName ? (teacherByName.get(teacherName.toLowerCase())?.id ?? null) : null, lowConfidence: false }
+      : { ...e, subjectName: e.subjectName.trim(), subjectCode: e.subjectCode?.trim().toUpperCase() || null, room: e.room?.trim() || null, section: sec?.name ?? null, semester: sec?.semester ?? null, lowConfidence: false };
     const copies = editing.duplicateTo.filter((d) => d !== e.dayOfWeek).map((d) => ({ ...cleaned, id: newId(), dayOfWeek: d }));
     const others = entries.filter((x) => x.id !== e.id);
     for (const c of [cleaned, ...copies]) {
       const clash = others.find((o) => o.dayOfWeek === c.dayOfWeek && o.startPeriod <= c.endPeriod && c.startPeriod <= o.endPeriod);
-      if (clash) return setDialogError(`${DAY_NAMES[c.dayOfWeek]} P${c.startPeriod}${c.endPeriod > c.startPeriod ? `–P${c.endPeriod}` : ""} overlaps ${clash.subjectName}. You can't be in two classes at once.`);
+      if (clash) return setDialogError(`${DAY_NAMES[c.dayOfWeek]} P${c.startPeriod}${c.endPeriod > c.startPeriod ? `–P${c.endPeriod}` : ""} overlaps ${clash.subjectName}. ${routine ? "A section can't have two classes at once." : "You can't be in two classes at once."}`);
     }
     update([...others, cleaned, ...copies]);
     setEditing(null);
@@ -131,7 +143,7 @@ export function TimetableEditor({
     };
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
-  }, [drag]);
+  }, [drag, openNew]);
 
   // ---------- keyboard ----------
   function onKeyDown(ev: React.KeyboardEvent) {
@@ -159,18 +171,32 @@ export function TimetableEditor({
   }
 
   // ---------- server ----------
-  const payload = () => ({
-    source,
-    filePath,
-    entries: entries.map((e) => ({ id: e.id, dayOfWeek: e.dayOfWeek, startPeriod: e.startPeriod, endPeriod: e.endPeriod, subjectCode: e.subjectCode || null, subjectName: e.subjectName, sectionId: e.sectionId, room: e.room || null, type: e.type, lowConfidence: !!e.lowConfidence })),
-  });
+  const payloadEntries = () =>
+    entries.map((e) => ({
+      id: e.id,
+      dayOfWeek: e.dayOfWeek,
+      startPeriod: e.startPeriod,
+      endPeriod: e.endPeriod,
+      subjectCode: e.subjectCode || null,
+      subjectName: e.subjectName,
+      sectionId: routine ? null : e.sectionId,
+      room: e.room || null,
+      type: e.type,
+      lowConfidence: !!e.lowConfidence,
+      ...(routine ? { teacherId: e.teacherId ?? null, teacherName: e.teacherName || null } : {}),
+    }));
+  const saveDraft = () =>
+    routine
+      ? saveRoutineDraft({ sectionId: routine.sectionId, filePath, entries: payloadEntries() })
+      : saveTimetableDraft({ source, filePath, entries: payloadEntries() });
+  const who = routine ? `Section ${routine.sectionName} students` : "Students";
 
   const save = () =>
     startTransition(async () => {
-      const r = await saveTimetableDraft(payload());
+      const r = await saveDraft();
       if (r.ok) {
         setDirty(false);
-        toast.success("Draft saved. Students still see your published timetable until you publish.");
+        toast.success(`Draft saved. ${who} still see the published ${routine ? "routine" : "timetable"} until you publish.`);
         router.refresh();
       } else toast.error(r.error);
     });
@@ -178,22 +204,22 @@ export function TimetableEditor({
   const publish = () =>
     startTransition(async () => {
       if (dirty || !hasDraft) {
-        const s = await saveTimetableDraft(payload());
+        const s = await saveDraft();
         if (!s.ok) return void toast.error(s.error);
       }
-      const r = await publishTimetable();
+      const r = routine ? await publishRoutine(routine.sectionId) : await publishTimetable();
       if (r.ok) {
         setDirty(false);
         setPublishOpen(false);
-        toast.success("Timetable published", { description: r.message });
-        router.push("/teacher/timetable");
+        toast.success(routine ? "Routine published" : "Timetable published", { description: r.message });
+        router.push(routine ? "/cluster-head/routines" : "/teacher/timetable");
         router.refresh();
       } else toast.error(r.error);
     });
 
   const discard = () =>
     startTransition(async () => {
-      const r = await discardTimetableDraft();
+      const r = routine ? await discardRoutineDraft(routine.sectionId) : await discardTimetableDraft();
       if (r.ok) {
         toast.success(r.message ?? "Discarded");
         setDirty(false);
@@ -280,7 +306,11 @@ export function TimetableEditor({
                           >
                             <span className="text-sm font-semibold">{e.subjectCode || e.subjectName}</span>
                             {e.subjectCode && <span className="line-clamp-1 text-xs opacity-80">{e.subjectName}</span>}
-                            <span className="text-xs font-medium opacity-90">{[e.section, e.room].filter(Boolean).join(" · ") || (e.type === "MEETING" || e.type === "MENTORING" ? TYPE_STYLE[e.type].label : "No section")}</span>
+                            <span className="text-xs font-medium opacity-90">
+                              {routine
+                                ? [e.teacherName, e.room].filter(Boolean).join(" · ") || "No teacher"
+                                : [e.section, e.room].filter(Boolean).join(" · ") || (e.type === "MEETING" || e.type === "MENTORING" ? TYPE_STYLE[e.type].label : "No section")}
+                            </span>
                             {e.lowConfidence && <span className="mt-auto rounded bg-yellow-300 px-1 text-[11px] font-bold text-yellow-950">CHECK</span>}
                           </button>
                         </td>
@@ -362,7 +392,7 @@ export function TimetableEditor({
             <form onSubmit={(ev) => { ev.preventDefault(); saveDialog(); }} className="space-y-4">
               <DialogHeader>
                 <DialogTitle>{editing.isNew ? "Add class" : "Edit class"} · {DAY_NAMES[editing.entry.dayOfWeek]}</DialogTitle>
-                <DialogDescription>{editing.entry.lowConfidence ? "This cell was read from your scan with low confidence. Check every field, then save." : "Saved to your draft. Publish to make it visible to students."}</DialogDescription>
+                <DialogDescription>{editing.entry.lowConfidence ? "This cell was read from the scan with low confidence. Check every field, then save." : "Saved to the draft. Publish to make it visible to students."}</DialogDescription>
               </DialogHeader>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -379,6 +409,28 @@ export function TimetableEditor({
                   <Label htmlFor="e-name">Subject name *</Label>
                   <Input id="e-name" autoFocus value={editing.entry.subjectName} onChange={(ev) => setEditing({ ...editing, entry: { ...editing.entry, subjectName: ev.target.value } })} placeholder="Database Management Systems" />
                 </div>
+                {routine ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="e-teacher">Teacher</Label>
+                    <Input
+                      id="e-teacher"
+                      list="routine-teachers"
+                      value={editing.entry.teacherName ?? ""}
+                      onChange={(ev) => setEditing({ ...editing, entry: { ...editing.entry, teacherName: ev.target.value } })}
+                      placeholder="Prof. Kavitha Rao"
+                    />
+                    <datalist id="routine-teachers">
+                      {routine.teachers.map((t) => <option key={t.id} value={t.name} />)}
+                    </datalist>
+                    <p className="text-xs text-muted-foreground">
+                      {editing.entry.teacherName?.trim()
+                        ? teacherByName.has(editing.entry.teacherName.trim().toLowerCase())
+                          ? "Linked to the faculty account: students see live status."
+                          : "Not a registered faculty name. Shown as written."
+                        : "Pick a faculty member or type the name."}
+                    </p>
+                  </div>
+                ) : (
                 <div className="space-y-1.5">
                   <Label htmlFor="e-section">Section</Label>
                   <NativeSelect
@@ -393,6 +445,7 @@ export function TimetableEditor({
                     {sections.map((s) => <option key={s.id} value={s.id}>{s.departmentCode} {s.name}</option>)}
                   </NativeSelect>
                 </div>
+                )}
                 <div className="space-y-1.5">
                   <Label htmlFor="e-room">Room</Label>
                   <Input id="e-room" value={editing.entry.room ?? ""} onChange={(ev) => setEditing({ ...editing, entry: { ...editing.entry, room: ev.target.value } })} placeholder="204 / CSE Lab 2" />
@@ -440,8 +493,12 @@ export function TimetableEditor({
       <Dialog open={publishOpen} onOpenChange={setPublishOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Publish timetable?</DialogTitle>
-            <DialogDescription>Students and your Cluster Head will see it immediately. Your previous timetable will be archived.</DialogDescription>
+            <DialogTitle>{routine ? `Publish Section ${routine.sectionName} routine?` : "Publish timetable?"}</DialogTitle>
+            <DialogDescription>
+              {routine
+                ? `Every Section ${routine.sectionName} student sees these classes on their dashboard right away and gets a notification. The previous routine is archived.`
+                : "Students and your Cluster Head will see it immediately. Your previous timetable will be archived."}
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="rounded-lg bg-muted p-3"><p className="text-2xl font-bold tabular-nums">{s.classes}</p><p className="text-xs text-muted-foreground">classes</p></div>

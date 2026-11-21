@@ -5,9 +5,9 @@ import { toast } from "sonner";
 import { FileUp, LoaderCircle, Minus, Plus, RotateCcw, ScanText, TriangleExclamationPoint as TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { TimetableEditor } from "./timetable-editor";
+import { TimetableEditor, type RoutineContext } from "./timetable-editor";
 import { uploadDirect } from "@/lib/upload-client";
-import { parseTimetableWords, type OcrWord } from "@/lib/services/ocrParser";
+import { matchTeacherName, parseTimetableWords, stripTeacherTokens, type OcrWord } from "@/lib/services/ocrParser";
 import type { PeriodSlot } from "@/lib/services/periods";
 import type { DraftEntry, OtherEntry } from "@/lib/services/timetableValidation";
 
@@ -69,6 +69,7 @@ export function OcrUpload({
   otherEntries,
   departmentCode,
   knownCodes,
+  routine,
 }: {
   periods: PeriodSlot[];
   sections: Section[];
@@ -76,6 +77,8 @@ export function OcrUpload({
   departmentCode: string;
   /** Subject codes already used in the college, for correcting OCR misreads. */
   knownCodes: string[];
+  /** Cluster Head uploading one section's routine (cells name teachers, not sections). */
+  routine?: RoutineContext;
 }) {
   const [stage, setStage] = useState<Stage>("pick");
   const [progress, setProgress] = useState(0);
@@ -95,7 +98,7 @@ export function OcrUpload({
       setStatusText("Uploading original…");
       setProgress(5);
       // Original goes straight to Storage (signed URL), never through the server
-      const up = await uploadDirect("timetable", [file]);
+      const up = await uploadDirect(routine ? "routine" : "timetable", [file]);
       if ("error" in up) throw new Error(up.error);
       setFilePath(up.paths[0]);
 
@@ -115,13 +118,13 @@ export function OcrUpload({
       });
       // Pass 1: sparse-text mode finds isolated words in table cells.
       await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
-      let parsed = parseTimetableWords(wordsOf((await worker.recognize(ocrSrc, {}, { blocks: true })).data), periods, { knownCodes });
+      let parsed = parseTimetableWords(wordsOf((await worker.recognize(ocrSrc, {}, { blocks: true })).data), periods, { knownCodes, requireSection: !routine });
       // Pass 2 (fallback): automatic page layout, keep whichever read more of the table.
       if (parsed.daysFound < 3 || parsed.entries.length === 0) {
         pass = 1;
         setStatusText("Trying another reading mode…");
         await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
-        const second = parseTimetableWords(wordsOf((await worker.recognize(ocrSrc, {}, { blocks: true })).data), periods, { knownCodes });
+        const second = parseTimetableWords(wordsOf((await worker.recognize(ocrSrc, {}, { blocks: true })).data), periods, { knownCodes, requireSection: !routine });
         if (second.entries.length > parsed.entries.length) parsed = second;
       }
       await worker.terminate();
@@ -129,6 +132,27 @@ export function OcrUpload({
       setStatusText("Building draft timetable…");
       const deptSections = sections.filter((s) => s.departmentCode === departmentCode);
       const drafts: DraftEntry[] = parsed.entries.map((e) => {
+        if (routine) {
+          // Section routine: the section is fixed; find the teacher named in the cell.
+          const teacher = matchTeacherName(e.rawText, routine.teachers);
+          const name = (teacher ? stripTeacherTokens(e.subjectName, teacher.name) : e.subjectName).slice(0, 120);
+          return {
+            id: e.id,
+            dayOfWeek: e.dayOfWeek,
+            startPeriod: e.startPeriod,
+            endPeriod: e.endPeriod,
+            subjectCode: e.subjectCode,
+            subjectName: name || e.subjectCode || "Unknown subject",
+            sectionId: routine.sectionId,
+            section: routine.sectionName,
+            semester: null,
+            room: e.room ?? routine.homeRoom,
+            type: e.type,
+            teacherId: teacher?.id ?? null,
+            teacherName: teacher?.name ?? null,
+            lowConfidence: e.lowConfidence,
+          };
+        }
         const match = deptSections.find((s) => s.name === e.section) ?? null;
         return {
           id: e.id,
@@ -177,7 +201,7 @@ export function OcrUpload({
           {stage === "pick" ? (
             <>
               <span className="mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary/10 text-primary"><FileUp aria-hidden className="size-8" /></span>
-              <p className="text-lg font-semibold">Upload your timetable</p>
+              <p className="text-lg font-semibold">{routine ? `Upload Section ${routine.sectionName} routine` : "Upload your timetable"}</p>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">A clear, straight photo or PDF works best. We read it with OCR and build a draft. You review every cell, and nothing goes live until you publish.</p>
               <input ref={inputRef} type="file" accept="image/jpeg,image/png,application/pdf" className="sr-only" id="tt-file" onChange={(e) => e.target.files?.[0] && handle(e.target.files[0])} />
               <Button size="lg" className="mt-5" onClick={() => inputRef.current?.click()}>
@@ -225,7 +249,7 @@ export function OcrUpload({
           </div>
         </section>
         <div className="min-w-0">
-          <TimetableEditor periods={periods} sections={sections} initialEntries={entries} otherEntries={otherEntries} hasDraft={false} source="UPLOAD" filePath={filePath} />
+          <TimetableEditor periods={periods} sections={sections} initialEntries={entries} otherEntries={otherEntries} hasDraft={false} source="UPLOAD" filePath={filePath} routine={routine} />
         </div>
       </div>
     </div>

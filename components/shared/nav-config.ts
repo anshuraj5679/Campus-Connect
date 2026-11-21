@@ -75,6 +75,7 @@ export const NAV_BY_ROLE: Record<Role, NavGroup[]> = {
       label: "Cluster",
       items: [
         { label: "Cluster Overview", href: "/cluster-head", icon: LayoutDashboard },
+        { label: "Section Routines", href: "/cluster-head/routines", icon: CalendarDays },
         { label: "Complaints", href: "/cluster-head/complaints", icon: MessageSquareExclamationPoint },
         { label: "Cluster Teachers", href: "/cluster-head/teachers", icon: Users },
         { label: "Announcements", href: "/cluster-head/announcements", icon: Megaphone },

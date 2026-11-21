@@ -19,11 +19,13 @@ import { fail, guard, ok, parse, type ActionResult } from "@/lib/server/action";
  * (owner folder + real size/type from Storage).
  */
 
-export type UploadKind = "evidence" | "timetable" | "announcement";
+export type UploadKind = "evidence" | "timetable" | "routine" | "announcement";
 
 const RULES: Record<UploadKind, { bucket: string; roles: () => readonly Role[]; maxFiles: number; maxBytes: number; mime: readonly string[] | null }> = {
   evidence: { bucket: "complaint-evidence", roles: () => ["STUDENT"], maxFiles: MAX_EVIDENCE_FILES, maxBytes: MAX_EVIDENCE_BYTES, mime: EVIDENCE_MIME },
   timetable: { bucket: "timetables", roles: () => rolesForPath("/teacher")!, maxFiles: 1, maxBytes: 10 * 1024 * 1024, mime: ["image/jpeg", "image/png", "application/pdf"] },
+  // Section routine PDFs/photos uploaded by the Cluster Head (or HOD / admin)
+  routine: { bucket: "timetables", roles: () => ["CLUSTER_HEAD", "HOD", "ADMIN"], maxFiles: 1, maxBytes: 10 * 1024 * 1024, mime: ["image/jpeg", "image/png", "application/pdf"] },
   announcement: { bucket: "announcements", roles: () => ["CLUSTER_HEAD", "HOD", "ADMIN"], maxFiles: 1, maxBytes: 10 * 1024 * 1024, mime: null },
 };
 

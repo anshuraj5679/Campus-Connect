@@ -14,6 +14,9 @@ export const entrySchema = z
     room: z.string().trim().max(40).nullable(),
     type: z.enum(CLASS_TYPES),
     lowConfidence: z.boolean().optional(),
+    // Section routines: the teacher of the class (account match optional, name as written)
+    teacherId: z.uuid().nullable().optional(),
+    teacherName: z.string().trim().max(120).nullable().optional(),
   })
   .refine((e) => e.endPeriod >= e.startPeriod, { message: "End period must be after start period", path: ["endPeriod"] });
 
@@ -24,6 +27,13 @@ export const saveDraftSchema = z.object({
 });
 
 export type EntryInput = z.infer<typeof entrySchema>;
+
+/** A Cluster Head's routine draft for one section. */
+export const saveRoutineSchema = z.object({
+  sectionId: z.uuid(),
+  entries: z.array(entrySchema).max(80, "Too many entries"),
+  filePath: z.string().max(300).nullable().optional(),
+});
 
 export const unavailabilitySchema = z
   .object({

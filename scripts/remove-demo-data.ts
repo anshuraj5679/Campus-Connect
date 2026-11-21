@@ -56,22 +56,38 @@ async function main() {
     const { rowCount: notices } = await db.query(
       `delete from public.announcements where author_id is null or author_id in (select id from auth.users where ${DEMO})`,
     );
-    await db.query(`delete from public.notifications`);
-    await db.query(`delete from public.audit_logs`);
-    // Removing the users cascades to their profiles, timetables, unavailability, preferences, overrides
+    // Only the demo accounts' own activity; real users' notifications and audit trail stay.
+    await db.query(`delete from public.audit_logs where actor_id = any($1)`, [ids]);
+
+    // Sections / clusters the demo accounts used (remembered before the users are deleted).
+    // Sections and clusters created by real users are never touched, even when empty.
+    const { rows: touched } = await db.query(
+      `select
+         array(select section_id from public.student_profiles where user_id = any($1)
+               union select id from public.sections where cluster_id in (select id from public.clusters where cluster_head_id = any($1))) as sections,
+         array(select cluster_id from public.teacher_profiles where user_id = any($1) and cluster_id is not null
+               union select id from public.clusters where cluster_head_id = any($1)
+               union select cluster_id from public.sections where id in (select section_id from public.student_profiles where user_id = any($1))) as clusters`,
+      [ids],
+    );
+    // Removing the users cascades to their profiles, notifications, timetables, unavailability, preferences, overrides
     await db.query(`delete from auth.users where id = any($1)`, [ids]);
 
-    // Sections / clusters nobody belongs to any more
-    const { rowCount: sections } = await db.query(`
-      delete from public.sections s
-       where not exists (select 1 from public.student_profiles sp where sp.section_id = s.id)
-         and not exists (select 1 from public.timetable_entries e where e.section_id = s.id)`);
-    const { rowCount: clusters } = await db.query(`
-      delete from public.clusters c
-       where c.cluster_head_id is null
-         and not exists (select 1 from public.sections s where s.cluster_id = c.id)
-         and not exists (select 1 from public.teacher_profiles t where t.cluster_id = c.id)`);
-    await db.query(`delete from public.holidays where name ilike '%sports day%'`);
+    const { rowCount: sections } = await db.query(
+      `delete from public.sections s
+        where s.id = any($1)
+          and not exists (select 1 from public.student_profiles sp where sp.section_id = s.id)
+          and not exists (select 1 from public.timetable_entries e where e.section_id = s.id)`,
+      [touched[0].sections],
+    );
+    const { rowCount: clusters } = await db.query(
+      `delete from public.clusters c
+        where c.id = any($1)
+          and c.cluster_head_id is null
+          and not exists (select 1 from public.sections s where s.cluster_id = c.id)
+          and not exists (select 1 from public.teacher_profiles t where t.cluster_id = c.id)`,
+      [touched[0].clusters],
+    );
     const { rows: left } = await db.query(`select count(*)::int as n from public.complaints`);
     if (left[0].n === 0) await db.query(`delete from public.complaint_counters`);
     // Hard guard: real accounts must be untouched, otherwise undo everything.

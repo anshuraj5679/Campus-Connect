@@ -40,7 +40,7 @@ export function normalizeCluster(raw: string): string {
   return t.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const sectionField = z
+export const sectionField = z
   .string()
   .transform(normalizeSection)
   .pipe(z.string().regex(/^[1-8][A-Z]$/, "Type your section as semester + letter, e.g. 5J"));
