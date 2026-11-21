@@ -13,6 +13,7 @@ import { istDateTime } from "@/lib/services/time";
 import { fail, guard, ok, parse, type ActionResult } from "@/lib/server/action";
 import { notify } from "@/lib/server/notify";
 import { audit } from "@/lib/server/audit";
+import { verifyUploadedFile } from "@/lib/server/uploads";
 
 /** Publish a notice in the author's own scope: Admin → College, HOD → Department, CH → Cluster. */
 export async function createAnnouncement(form: FormData): Promise<ActionResult> {
@@ -47,15 +48,15 @@ export async function createAnnouncement(form: FormData): Promise<ActionResult> 
       departmentId = c?.department_id ?? null;
     }
 
+    // The attachment was uploaded straight to Storage; verify the path (own folder, ≤ 10 MB).
     let attachmentPath: string | null = null;
     let attachmentName: string | null = null;
-    const file = form.get("attachment");
-    if (file instanceof File && file.size > 0) {
-      if (file.size > 10 * 1024 * 1024) return fail("Attachment must be 10 MB or smaller.");
-      attachmentName = file.name.slice(0, 120);
-      attachmentPath = `${viewer.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60)}`;
-      const up = await admin.storage.from("announcements").upload(attachmentPath, file, { contentType: file.type || "application/octet-stream" });
-      if (up.error) return fail(up.error.message);
+    const path = String(form.get("attachmentPath") ?? "");
+    if (path) {
+      const check = await verifyUploadedFile("announcements", viewer.id, path, { maxBytes: 10 * 1024 * 1024 });
+      if (!check.ok) return fail(check.error);
+      attachmentPath = path;
+      attachmentName = String(form.get("attachmentName") ?? "attachment").slice(0, 120);
     }
 
     const expiresAt = v.expiresAt ? istDateTime(v.expiresAt, "23:59").toISOString() : null;

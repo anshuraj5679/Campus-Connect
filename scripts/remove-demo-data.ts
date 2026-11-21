@@ -39,6 +39,11 @@ async function main() {
   const ids = demoUsers.map((u) => u.id);
   console.log(`Demo accounts to remove: ${ids.length}${keepDemoAdmin ? ` (keeping ${DEMO_ADMIN} until you create your own admin)` : ""}`);
 
+  const countReal = async () =>
+    (await db.query(`select count(*)::int as n from auth.users where not ${DEMO}`)).rows[0].n as number;
+  const realBefore = await countReal();
+  console.log(`Real (non-demo) accounts that will be kept: ${realBefore}`);
+
   await db.query("begin");
   try {
     // Complaints that involve any demo person (their routing targets would no longer exist)
@@ -69,6 +74,9 @@ async function main() {
     await db.query(`delete from public.holidays where name ilike '%sports day%'`);
     const { rows: left } = await db.query(`select count(*)::int as n from public.complaints`);
     if (left[0].n === 0) await db.query(`delete from public.complaint_counters`);
+    // Hard guard: real accounts must be untouched, otherwise undo everything.
+    const realAfter = await countReal();
+    if (realAfter !== realBefore) throw new Error(`Safety stop: real accounts changed (${realBefore} → ${realAfter}). Nothing was removed.`);
     await db.query("commit");
     console.log(`✔ removed ${complaints} demo complaints, ${notices} demo notices, ${sections} empty sections, ${clusters} empty clusters`);
   } catch (e) {
@@ -80,8 +88,9 @@ async function main() {
   for (const bucket of ["complaint-evidence", "timetables", "announcements"]) {
     const { data: folders } = await supabase.storage.from(bucket).list("", { limit: 1000 });
     for (const folder of folders ?? []) {
+      // Folders are named after the uploading user (or, for older evidence, the complaint)
       const { rows } = await db.query(
-        bucket === "complaint-evidence" ? `select 1 from public.complaints where id::text = $1` : `select 1 from public.profiles where id::text = $1`,
+        `select 1 from public.profiles where id::text = $1 union all select 1 from public.complaints where id::text = $1`,
         [folder.name],
       );
       if (rows.length) continue;

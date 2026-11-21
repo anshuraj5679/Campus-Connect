@@ -6,7 +6,7 @@ import { FileUp, LoaderCircle, Minus, Plus, RotateCcw, ScanText, TriangleExclama
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { TimetableEditor } from "./timetable-editor";
-import { uploadTimetableFile } from "@/lib/actions/timetable";
+import { uploadDirect } from "@/lib/upload-client";
 import { parseTimetableWords, type OcrWord } from "@/lib/services/ocrParser";
 import type { PeriodSlot } from "@/lib/services/periods";
 import type { DraftEntry, OtherEntry } from "@/lib/services/timetableValidation";
@@ -94,11 +94,10 @@ export function OcrUpload({
     try {
       setStatusText("Uploading original…");
       setProgress(5);
-      const fd = new FormData();
-      fd.append("file", file);
-      const up = await uploadTimetableFile(fd);
-      if (!up.ok) throw new Error(up.error);
-      setFilePath(up.data!.path);
+      // Original goes straight to Storage (signed URL), never through the server
+      const up = await uploadDirect("timetable", [file]);
+      if ("error" in up) throw new Error(up.error);
+      setFilePath(up.paths[0]);
 
       setStatusText(file.type === "application/pdf" ? "Rendering PDF…" : "Preparing image…");
       setProgress(12);

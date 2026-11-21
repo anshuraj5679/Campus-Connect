@@ -28,6 +28,7 @@ import { addHistory, buildDirectory, complaintLink, LEVEL_LABEL } from "@/lib/se
 import { fail, guard, ok, parse, type ActionResult } from "@/lib/server/action";
 import { notify } from "@/lib/server/notify";
 import { audit } from "@/lib/server/audit";
+import { verifyUploadedFile } from "@/lib/server/uploads";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -80,12 +81,20 @@ export async function createComplaint(form: FormData): Promise<ActionResult<{ co
     if ("error" in p) return fail(p.error);
     const v = p.data;
 
-    // Evidence: max 5 files, 5 MB each, jpg/png/pdf
-    const files = form.getAll("files").filter((f): f is File => f instanceof File && f.size > 0);
-    if (files.length > MAX_EVIDENCE_FILES) return fail(`Attach at most ${MAX_EVIDENCE_FILES} files.`);
-    for (const f of files) {
-      if (!(EVIDENCE_MIME as readonly string[]).includes(f.type)) return fail(`${f.name}: only JPG, PNG or PDF files are allowed.`);
-      if (f.size > MAX_EVIDENCE_BYTES) return fail(`${f.name} is larger than 5 MB.`);
+    // Evidence was uploaded straight to Storage; we receive paths and verify each one
+    // (own folder, real size ≤ 5 MB, real type jpg/png/pdf). Max 5 files.
+    let evidence: { path: string; name: string }[] = [];
+    try {
+      evidence = JSON.parse(String(form.get("evidence") ?? "[]"));
+    } catch {
+      return fail("Invalid evidence list.");
+    }
+    if (!Array.isArray(evidence) || evidence.length > MAX_EVIDENCE_FILES) return fail(`Attach at most ${MAX_EVIDENCE_FILES} files.`);
+    const verified: { path: string; name: string; size: number; mime: string }[] = [];
+    for (const e of evidence) {
+      const check = await verifyUploadedFile("complaint-evidence", user.id, e?.path, { maxBytes: MAX_EVIDENCE_BYTES, mime: EVIDENCE_MIME });
+      if (!check.ok) return fail(check.error);
+      verified.push({ path: e.path, name: String(e.name ?? "evidence").slice(0, 120), size: check.size, mime: check.contentType });
     }
 
     const admin = createAdminClient();
@@ -142,11 +151,10 @@ export async function createComplaint(form: FormData): Promise<ActionResult<{ co
     await addHistory(admin, { complaintId: created.id, actorId: user.id, action: "SUBMITTED", toStatus: "SUBMITTED", remark: "Complaint submitted" });
     await addHistory(admin, { complaintId: created.id, actorId: null, action: "ASSIGNED", fromStatus: "SUBMITTED", toStatus: "ASSIGNED", remark: route.reason, meta: { assignee_id: route.assigneeId, level: route.level } });
 
-    for (const f of files) {
-      const path = `${created.id}/${crypto.randomUUID()}-${f.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60)}`;
-      const up = await admin.storage.from("complaint-evidence").upload(path, f, { contentType: f.type });
-      if (up.error) continue;
-      await admin.from("complaint_attachments").insert({ complaint_id: created.id, uploaded_by: user.id, path, file_name: f.name.slice(0, 120), mime: f.type, size: f.size });
+    if (verified.length) {
+      await admin.from("complaint_attachments").insert(
+        verified.map((f) => ({ complaint_id: created.id, uploaded_by: user.id, path: f.path, file_name: f.name, mime: f.mime, size: f.size })),
+      );
     }
 
     await notify([route.assigneeId], {

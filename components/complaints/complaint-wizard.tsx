@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Field } from "@/components/shared/field";
 import { createComplaint, previewRouting } from "@/lib/actions/complaints";
+import { uploadDirect } from "@/lib/upload-client";
 import { CATEGORY_LABEL, type ComplaintCategory } from "@/lib/services/complaintRouting";
 import { EVIDENCE_MIME, MAX_EVIDENCE_BYTES, MAX_EVIDENCE_FILES } from "@/lib/services/complaintWorkflow";
 import { bytesLabel } from "@/lib/format";
@@ -93,14 +94,20 @@ export function ComplaintWizard({ teachers }: { teachers: { id: string; name: st
   }
 
   function submit() {
-    const fd = new FormData();
-    fd.append("category", category!);
-    fd.append("teacherId", teacherId);
-    fd.append("subject", subject.trim());
-    fd.append("description", description.trim());
-    fd.append("isConfidential", String(isConfidential));
-    files.forEach((f) => fd.append("files", f));
     startTransition(async () => {
+      // Evidence goes straight to Storage (signed URLs); only the paths are sent with the complaint.
+      const up = await uploadDirect("evidence", files);
+      if ("error" in up) {
+        toast.error(up.error);
+        return;
+      }
+      const fd = new FormData();
+      fd.append("category", category!);
+      fd.append("teacherId", teacherId);
+      fd.append("subject", subject.trim());
+      fd.append("description", description.trim());
+      fd.append("isConfidential", String(isConfidential));
+      fd.append("evidence", JSON.stringify(up.paths.map((path, i) => ({ path, name: files[i].name }))));
       const r = await createComplaint(fd);
       if (r.ok) setDoneCode(r.data!.code);
       else toast.error(r.error);

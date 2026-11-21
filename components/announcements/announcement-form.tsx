@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { Field } from "@/components/shared/field";
 import { ConfirmButton } from "@/components/shared/confirm-button";
 import { createAnnouncement, deleteAnnouncement, toggleAnnouncementPin } from "@/lib/actions/announcements";
+import { uploadDirect } from "@/lib/upload-client";
 
 const AUD = [
   { value: "BOTH", label: "Students & teachers" },
@@ -46,7 +47,18 @@ export function AnnouncementForm({ scopeLabel, sectionOptions }: { scopeLabel: s
         fd.set("semesters", JSON.stringify(audience === "TEACHERS" ? [] : semesters));
         fd.set("sections", JSON.stringify(audience === "TEACHERS" ? [] : sections));
         fd.set("pinned", String(pinned));
+        const file = fd.get("attachment");
+        fd.delete("attachment"); // never send the file through the server (Vercel 4.5 MB limit)
         startTransition(async () => {
+          if (file instanceof File && file.size > 0) {
+            const up = await uploadDirect("announcement", [file]);
+            if ("error" in up) {
+              toast.error(up.error);
+              return;
+            }
+            fd.set("attachmentPath", up.paths[0]);
+            fd.set("attachmentName", file.name);
+          }
           const r = await createAnnouncement(fd);
           if (r.ok) {
             toast.success(r.message ?? "Published");

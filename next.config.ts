@@ -5,8 +5,10 @@ const nextConfig: NextConfig = {
   // clobber the running dev server's .next directory.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   experimental: {
-    // Timetable scans (≤10 MB) and complaint evidence (5 × 5 MB) are uploaded through server actions.
-    serverActions: { bodySizeLimit: "30mb" },
+    // Files are uploaded straight to Supabase Storage with signed URLs
+    // (lib/upload-client.ts), so server actions only carry small JSON payloads.
+    // This stays below Vercel's 4.5 MB request-body limit.
+    serverActions: { bodySizeLimit: "2mb" },
     // Enables forbidden() → app/forbidden.tsx with a real HTTP 403 status.
     authInterrupts: true,
   },

@@ -37,6 +37,8 @@ export async function saveTimetableDraft(input: unknown): Promise<ActionResult<{
     const user = await requireRole(teacherRoles());
     const p = parse(saveDraftSchema, input);
     if ("error" in p) return fail(p.error);
+    // The scan was uploaded straight to Storage; only accept a path in this teacher's own folder.
+    if (p.data.filePath && !p.data.filePath.startsWith(`${user.id}/`)) return fail("Invalid timetable file reference.");
     const admin = createAdminClient();
     const versionId = await ensureDraft(admin, user.id, p.data.source, p.data.filePath);
 
@@ -125,27 +127,6 @@ export async function publishTimetable(): Promise<ActionResult<{ classes: number
     revalidatePath("/teacher", "layout");
     revalidatePath("/teachers", "layout");
     return ok({ classes: s.classes, labs: s.labs, warnings }, `Published: ${s.classes} classes, ${s.labs} labs.`);
-  });
-}
-
-const UPLOAD_TYPES = ["image/jpeg", "image/png", "application/pdf"];
-
-/** Store the original timetable scan in the private `timetables` bucket. */
-export async function uploadTimetableFile(form: FormData): Promise<ActionResult<{ path: string; url: string }>> {
-  return guard(async () => {
-    const user = await requireRole(teacherRoles());
-    const file = form.get("file");
-    if (!(file instanceof File)) return fail("Choose a file.");
-    if (!UPLOAD_TYPES.includes(file.type)) return fail("Upload a JPG, PNG or PDF file.");
-    if (file.size > 10 * 1024 * 1024) return fail("The file must be 10 MB or smaller.");
-    const admin = createAdminClient();
-    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(-60);
-    const path = `${user.id}/${Date.now()}-${safe}`;
-    const { error } = await admin.storage.from("timetables").upload(path, file, { contentType: file.type, upsert: false });
-    if (error) return fail(error.message);
-    const { data } = await admin.storage.from("timetables").createSignedUrl(path, 60 * 60);
-    await audit(user.id, "TIMETABLE_UPLOADED", "timetables", path, { size: file.size, type: file.type });
-    return ok({ path, url: data?.signedUrl ?? "" });
   });
 }
 
