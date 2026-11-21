@@ -174,6 +174,14 @@ flowchart LR
 | `npm run create-admin -- email "Name"` | Create or promote a real administrator (prints a one-time password) |
 | `npm run typecheck` / `lint` | |
 
+## Live deployment
+
+**https://campus-connect-psi-rouge.vercel.app** (Vercel project `campus-connect`, connected to this GitHub repo: every push to `main` deploys automatically).
+
+- Server functions run in **Tokyo (`hnd1`)**, the same region as the Supabase database. Running in `iad1` made every page 2–4 s slower.
+- Files upload straight from the browser to Supabase Storage with signed URLs, so Vercel's 4.5 MB request limit doesn't apply.
+- Production env vars are set in Vercel: Supabase URL/keys, `CRON_SECRET`, `IMPORT_DEFAULT_PASSWORD`, `NEXT_PUBLIC_DEMO_MODE=false` and the college labels. `SUPABASE_DB_URL` is intentionally **not** on Vercel.
+
 ## Deploying to Vercel
 
 Add the same environment variables in Vercel. `vercel.json` schedules `/api/cron/jobs` daily at 09:00 IST, which is the most often the Hobby plan allows; on Pro you can make it hourly. Rotate the service-role key before going live.
