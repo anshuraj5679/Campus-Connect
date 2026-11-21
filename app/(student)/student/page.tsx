@@ -6,7 +6,7 @@ import { HeroBanner, PersonAvatar, SectionCard } from "@/components/shared/kit";
 import { StatusChip } from "@/components/shared/status-chip";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LiveRefresh } from "@/components/shared/live-refresh";
-import { TimetableGrid, TypeLegend } from "@/components/shared/timetable-grid";
+import { TimetableGrid, TypeLegend, TYPE_STYLE } from "@/components/shared/timetable-grid";
 import { getViewer } from "@/lib/data/viewer";
 import { getCalendar } from "@/lib/data/calendar";
 import { getAvailability } from "@/lib/data/availability";
@@ -114,7 +114,7 @@ export default async function StudentHomePage() {
                     {done && !live && <span className="text-xs text-muted-foreground">Done</span>}
                   </p>
                   <p className="mt-2 line-clamp-2 font-bold leading-snug">{c.subjectName}</p>
-                  <p className="text-sm text-muted-foreground">{c.subjectCode} · {c.type === "LAB" ? "Lab" : "Theory"}</p>
+                  <p className="text-sm text-muted-foreground">{[c.subjectCode, TYPE_STYLE[c.type].label].filter(Boolean).join(" · ")}</p>
                   {c.teacherName && (
                     <p className="mt-2 text-sm">
                       {c.teacherId ? <Link href={`/teachers/${c.teacherId}`} className="font-medium hover:text-primary hover:underline">{c.teacherName}</Link> : <span className="font-medium">{c.teacherName}</span>}
@@ -133,7 +133,12 @@ export default async function StudentHomePage() {
       <div className="grid gap-5 lg:grid-cols-3">
         <SectionCard title="My teachers right now" icon={UserSearch} className="lg:col-span-2" action={{ label: "Find a teacher", href: "/teachers" }}>
           {teacherCards.length === 0 ? (
-            <EmptyState icon={UserSearch} title="No published timetables for your section yet" className="py-6" />
+            <EmptyState
+              icon={UserSearch}
+              title={routine ? "Your teachers haven't joined CampusConnect yet" : "No published timetables for your section yet"}
+              description={routine ? "Their live status (in class, free, on leave) appears here once they sign up as teachers." : undefined}
+              className="py-6"
+            />
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2">
               {teacherCards.map((t) => (

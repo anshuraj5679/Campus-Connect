@@ -91,6 +91,15 @@ For each section they upload the routine **PDF or photo**:
 
 On publishing, the previous routine is archived. Every student of that section is notified and sees the classes in *Today's classes* and the weekly timetable on their dashboard, with a link to the original PDF.
 
+**Department timetable format (BMSIT&M).** The sheet has periods I–VII with Break and Lunch columns, abbreviations in the cells (SEPM, TOC, CN, PE…), merged cells for multi-period slots and labs, and a SUBJECT / CODE / FACULTY table underneath. The scan handles it in five steps:
+1. Flattens the photo's lighting.
+2. Detects and erases the table lines, which also gives exact column boundaries and shows which cells are merged.
+3. Reads the subject table and maps every abbreviation to its full name, code and faculty.
+4. Recognises activities (Library, Placement, Sports, Proctoring, IIC / Department Activity).
+5. Uses the printed class room for theory classes.
+
+The Cluster Head first corrects the subject table once (**Step 1: Subjects & faculty**), then reviews the grid. Period slots are set to BMSIT timings (migration 0008); the admin can change them under *Period Slots*.
+
 A section's routine takes precedence over classes that teachers entered in their own timetables. Teachers' timetables still drive their live availability. Data lives in `section_timetables` / `section_timetable_entries` (migration 0007). Drafts are visible only to the section's Cluster Head, HOD and the admin.
 
 ## Demo script (acceptance checklist)

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const CLASS_TYPES = ["THEORY", "LAB", "TUTORIAL", "MENTORING", "MEETING"] as const;
+export const CLASS_TYPES = ["THEORY", "LAB", "TUTORIAL", "MENTORING", "MEETING", "ACTIVITY"] as const;
 
 export const entrySchema = z
   .object({

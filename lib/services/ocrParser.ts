@@ -15,6 +15,7 @@
 import type { ClassType } from "./availability";
 import { timeToMinutes } from "./time";
 import type { PeriodSlot } from "./periods";
+import type { TableLines } from "./ocrPreprocess";
 
 export type OcrWord = {
   text: string;
@@ -44,6 +45,10 @@ export type ParseResult = {
   columnsFound: number;
   usedHeaders: boolean;
   warnings: string[];
+  /** y just below the last day row (where a subject legend may start) */
+  gridBottom?: number;
+  /** Cell geometry when the table lines were found (used to re-read cells OCR skipped). */
+  grid?: { rows: { day: number; y: number }[]; rowGap: number; columns: { period: number | null; left: number; right: number }[] };
 };
 
 const DAY_PATTERNS: [RegExp, number][] = [
@@ -162,7 +167,10 @@ export function matchTeacherName<T extends { id: string; name: string }>(text: s
     const words = fold(t.name).replace(/[^A-Z ]/g, " ").split(/\s+/).filter((w) => w && !HONORIFIC.test(w));
     if (words.length === 0) return false;
     const initials = words.map((w) => w[0]).join("");
-    return words.every((w) => tokens.has(w)) || (initials.length >= 2 && tokens.has(initials));
+    // Name words of 3+ letters must all appear; single-letter initials are often run
+    // together ("Geetha PL" for "Geetha P L"), so they are not required.
+    const required = words.filter((w) => w.length >= 3);
+    return (required.length ? required : words).every((w) => tokens.has(w)) || (initials.length >= 2 && tokens.has(initials));
   });
   return hits.length === 1 ? hits[0] : null;
 }
@@ -236,7 +244,13 @@ export function parseCellText(text: string, knownCodes: string[] = []) {
 export function parseTimetableWords(
   words: OcrWord[],
   slots: PeriodSlot[],
-  opts: { knownCodes?: string[]; /** false for section routines (cells name a teacher, not a section) */ requireSection?: boolean } = {},
+  opts: {
+    knownCodes?: string[];
+    /** false for section routines (cells name a teacher, not a section) */
+    requireSection?: boolean;
+    /** Detected table lines: exact column boundaries and merged cells. */
+    table?: TableLines;
+  } = {},
 ): ParseResult {
   const requireSection = opts.requireSection ?? true;
   const warnings: string[] = [];
@@ -263,77 +277,155 @@ export function parseTimetableWords(
   const rowGap = daySpan > 0 ? (rows[rows.length - 1].y - rows[0].y) / daySpan : 40;
   if (rows.length > found.length) warnings.push(`${rows.length - found.length} day label(s) were not read and were placed by position. Check those rows.`);
 
-  // 2. Columns from headers above the first day row
-  const headerHits = new Map<number, number[]>();
-  const breakXs: number[] = [];
-  for (const w of clean) {
-    if (cy(w) >= topRowY - rowGap * 0.4 || cx(w) <= labelRight) continue;
-    if (BREAK_WORD.test(w.text.replace(/[^a-z]/gi, ""))) {
-      if (!breakXs.some((x) => Math.abs(x - cx(w)) < rowGap / 2)) breakXs.push(cx(w));
-      continue;
+  // 2. Columns. Best source: the vertical lines of the header row (exact boundaries),
+  //    mapped by order when their count matches the period slots. Otherwise the
+  //    period headers (P1 / I–VII / start times), with missed ones placed by position.
+  type Column = { period: number | null; x: number; left?: number; right?: number }; // period null = break column (its words are ignored)
+  const allSlots = [...slots].sort((a, b) => a.sortOrder - b.sortOrder);
+  let columns: Column[] = [];
+  let usedHeaders = false;
+  let fromLines = false;
+  if (opts.table) {
+    // A strip just above the first day row's top border: inside the header row whatever its height.
+    const xs = opts.table.lineXs(topRowY - rowGap * 0.85, topRowY - rowGap * 0.56);
+    const intervals: [number, number][] = [];
+    for (let i = 0; i + 1 < xs.length; i++) {
+      if ((xs[i] + xs[i + 1]) / 2 > labelRight && xs[i + 1] - xs[i] > rowGap * 0.3) intervals.push([xs[i], xs[i + 1]]);
     }
-    const p = headerPeriod(w.text, teaching);
-    if (p !== null) headerHits.set(p, [...(headerHits.get(p) ?? []), cx(w)]);
+    const order = intervals.length === allSlots.length ? allSlots : intervals.length === teaching.length ? teaching : null;
+    if (order) {
+      columns = order.map((s, i) => ({ period: s.isBreak ? null : s.periodNo, x: (intervals[i][0] + intervals[i][1]) / 2, left: intervals[i][0], right: intervals[i][1] }));
+      usedHeaders = fromLines = true;
+    }
   }
-  type Column = { period: number | null; x: number }; // period null = break column (its words are ignored)
-  let columns: Column[] = [...headerHits.entries()]
-    .map(([period, xs]) => ({ period, x: xs.reduce((a, b) => a + b, 0) / xs.length }))
-    .sort((a, b) => a.x - b.x);
-  const usedHeaders = columns.length >= Math.max(2, Math.ceil(teaching.length / 2));
 
-  if (usedHeaders) {
-    // Fill headers OCR missed by position. Break columns count in the order only when
-    // every break header was read (layouts without break columns are common too).
-    const breaks = slots.filter((s) => s.isBreak).sort((a, b) => a.sortOrder - b.sortOrder);
-    const useBreaks = breaks.length > 0 && breakXs.length === breaks.length;
-    const order = (useBreaks ? [...slots] : [...teaching]).sort((a, b) => a.sortOrder - b.sortOrder);
-    const known = new Map<number, number>();
-    for (const c of columns) known.set(order.findIndex((s) => s.periodNo === c.period), c.x);
-    if (useBreaks) [...breakXs].sort((a, b) => a - b).forEach((x, i) => known.set(order.indexOf(breaks[i]), x));
-    const pos = fillPositions(known, order.map((_, i) => i), 2);
-    const missing = teaching.filter((s) => !headerHits.has(s.periodNo!) && pos.has(order.indexOf(s))).length;
-    columns = order
-      .map((s, i) => ({ period: s.isBreak ? null : s.periodNo, x: pos.get(i) }))
-      .filter((c): c is Column => c.x !== undefined)
+  if (!fromLines) {
+    const headerHits = new Map<number, number[]>();
+    const breakXs: number[] = [];
+    for (const w of clean) {
+      if (cy(w) >= topRowY - rowGap * 0.4 || cx(w) <= labelRight) continue;
+      if (BREAK_WORD.test(w.text.replace(/[^a-z]/gi, ""))) {
+        if (!breakXs.some((x) => Math.abs(x - cx(w)) < rowGap / 2)) breakXs.push(cx(w));
+        continue;
+      }
+      const p = headerPeriod(w.text, teaching);
+      if (p !== null) headerHits.set(p, [...(headerHits.get(p) ?? []), cx(w)]);
+    }
+    columns = [...headerHits.entries()]
+      .map(([period, xs]) => ({ period, x: xs.reduce((a, b) => a + b, 0) / xs.length }))
       .sort((a, b) => a.x - b.x);
-    if (missing) warnings.push(`${missing} period header(s) were not read and were placed by position. Check those columns.`);
-  } else {
-    const body = clean.filter((w) => cx(w) > labelRight && cy(w) > topRowY - rowGap / 2);
-    const maxX = body.length ? Math.max(...body.map((w) => w.bbox.x1)) : labelRight + 700;
-    const width = (maxX - labelRight) / teaching.length;
-    columns = teaching.map((s, i) => ({ period: s.periodNo!, x: labelRight + width * (i + 0.5) }));
-    warnings.push("Period headers were not recognised; columns were estimated by position. Check every cell.");
+    usedHeaders = columns.length >= Math.max(2, Math.ceil(teaching.length / 2));
+
+    if (usedHeaders) {
+      // Fill headers OCR missed by position. Break columns count in the order only when
+      // every break header was read (layouts without break columns are common too).
+      const breaks = allSlots.filter((s) => s.isBreak);
+      const useBreaks = breaks.length > 0 && breakXs.length === breaks.length;
+      const order = useBreaks ? allSlots : teaching;
+      const known = new Map<number, number>();
+      for (const c of columns) known.set(order.findIndex((s) => s.periodNo === c.period), c.x);
+      if (useBreaks) [...breakXs].sort((a, b) => a - b).forEach((x, i) => known.set(order.indexOf(breaks[i]), x));
+      const pos = fillPositions(known, order.map((_, i) => i), 2);
+      const missing = teaching.filter((s) => !headerHits.has(s.periodNo!) && pos.has(order.indexOf(s))).length;
+      columns = order
+        .map((s, i) => ({ period: s.isBreak ? null : s.periodNo, x: pos.get(i) }))
+        .filter((c): c is Column => c.x !== undefined)
+        .sort((a, b) => a.x - b.x);
+      if (missing) warnings.push(`${missing} period header(s) were not read and were placed by position. Check those columns.`);
+    } else {
+      const body = clean.filter((w) => cx(w) > labelRight && cy(w) > topRowY - rowGap / 2);
+      const maxX = body.length ? Math.max(...body.map((w) => w.bbox.x1)) : labelRight + 700;
+      const width = (maxX - labelRight) / teaching.length;
+      columns = teaching.map((s, i) => ({ period: s.periodNo!, x: labelRight + width * (i + 0.5) }));
+      warnings.push("Period headers were not recognised; columns were estimated by position. Check every cell.");
+    }
   }
 
   // 3. Assign words to cells
   const cells = new Map<string, OcrWord[]>();
   const rowBand = rowGap * 0.6;
+  const columnOf = (w: OcrWord) =>
+    (fromLines ? columns.find((c) => cx(w) >= c.left! && cx(w) < c.right!) : undefined) ??
+    columns.reduce((best, c) => (Math.abs(c.x - cx(w)) < Math.abs(best.x - cx(w)) ? c : best));
   for (const w of clean) {
     if (dayOf(w.text) && cx(w) <= labelRight + 5) continue;
     if (cx(w) <= labelRight) continue;
     if (cy(w) < topRowY - rowBand) continue; // header area
     const row = rows.reduce((best, r) => (Math.abs(r.y - cy(w)) < Math.abs(best.y - cy(w)) ? r : best));
     if (Math.abs(row.y - cy(w)) > rowBand) continue;
-    const col = columns.reduce((best, c) => (Math.abs(c.x - cx(w)) < Math.abs(best.x - cx(w)) ? c : best));
+    if (fromLines && (cx(w) < columns[0].left! || cx(w) > columns[columns.length - 1].right!)) continue; // outside the table
+    const col = columnOf(w);
     if (col.period === null) continue; // inside a break column
     const key = `${row.day}:${col.period}`;
     cells.set(key, [...(cells.get(key) ?? []), w]);
   }
 
+  // 3b. Merged cells: neighbouring periods with no vertical line between them in a row
+  //     are one cell ("Mini Project" across V–VII, a lab across III–IV).
+  const spans = new Map<string, number>(); // "day:start" → end period
+  if (opts.table) {
+    const ordered = columns.filter((c) => c.x !== undefined).sort((a, b) => a.x - b.x);
+    const pairs: { day: number; a: Column; b: Column; merged: boolean }[] = [];
+    for (const r of rows) {
+      for (let i = 0; i + 1 < ordered.length; i++) {
+        const a = ordered[i];
+        const b = ordered[i + 1];
+        if (a.period === null || b.period === null) continue; // a break column always separates
+        const boundary = fromLines ? a.right! : (a.x + b.x) / 2;
+        pairs.push({ day: r.day, a, b, merged: !opts.table.separated(boundary, r.y - rowGap * 0.3, r.y + rowGap * 0.3) });
+      }
+    }
+    // Only trust this when the table's lines were actually found (most boundaries have one).
+    if (pairs.length && pairs.filter((p) => !p.merged).length / pairs.length >= 0.4) {
+      for (const r of rows) {
+        let start: Column | null = null;
+        let end: Column | null = null;
+        const flush = () => {
+          if (start && end && end.period! > start.period!) {
+            const words: OcrWord[] = [];
+            for (let p = start.period!; p <= end.period!; p++) {
+              words.push(...(cells.get(`${r.day}:${p}`) ?? []));
+              cells.delete(`${r.day}:${p}`);
+            }
+            if (words.length) {
+              cells.set(`${r.day}:${start.period}`, words);
+              spans.set(`${r.day}:${start.period}`, end.period!);
+            }
+          }
+        };
+        for (const p of pairs.filter((x) => x.day === r.day)) {
+          if (p.merged) {
+            if (!start || end !== p.a) {
+              flush();
+              start = p.a;
+            }
+            end = p.b;
+          }
+        }
+        flush();
+      }
+    }
+  }
+
   // 4. Read cells
-  type Cell = Omit<ParsedEntry, "id" | "endPeriod"> & { key: string };
+  type Cell = Omit<ParsedEntry, "id"> & { key: string; merged: boolean };
   const parsed: Cell[] = [];
   for (const [key, ws] of cells) {
     const [day, period] = key.split(":").map(Number);
-    const sorted = [...ws].sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+    // Reading order: line by line (words on the same line left to right)
+    const lineH = ws.reduce((n, w) => n + (w.bbox.y1 - w.bbox.y0), 0) / ws.length;
+    const sorted = [...ws].sort((a, b) => (Math.abs(cy(a) - cy(b)) < lineH * 0.5 ? a.bbox.x0 - b.bbox.x0 : cy(a) - cy(b)));
     const text = sorted.map((w) => w.text).join(" ").trim();
     if (!text || /^(break|lunch|short|recess|-+)$/i.test(text)) continue;
     const confidence = Math.round(ws.reduce((n, w) => n + w.confidence, 0) / ws.length);
     const { code, section, room, type, name, corrected } = parseCellText(text, opts.knownCodes ?? []);
+    const end = spans.get(key);
     parsed.push({
       key,
       dayOfWeek: day,
       startPeriod: period,
+      endPeriod: end ?? period,
+      merged: end !== undefined,
       subjectCode: code,
       subjectName: name || code || text,
       section,
@@ -347,7 +439,7 @@ export function parseTimetableWords(
     });
   }
 
-  // 5. Merge identical neighbours into spans
+  // 5. Merge identical neighbours into spans (sheets that repeat a lab in each period's cell)
   parsed.sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startPeriod - b.startPeriod);
   const entries: ParsedEntry[] = [];
   for (const c of parsed) {
@@ -359,16 +451,20 @@ export function parseTimetableWords(
       (prev.subjectCode ?? prev.subjectName) === (c.subjectCode ?? c.subjectName) &&
       prev.section === c.section;
     if (sameClass) {
-      prev.endPeriod = c.startPeriod;
+      prev.endPeriod = c.endPeriod;
       prev.type = prev.type === "THEORY" && c.type === "THEORY" ? "LAB" : prev.type === "THEORY" ? c.type : prev.type;
       prev.confidence = Math.min(prev.confidence, c.confidence);
       prev.lowConfidence = prev.lowConfidence || c.lowConfidence;
       prev.room = prev.room ?? c.room;
       continue;
     }
-    entries.push({ ...c, id: `ocr-${c.key}`, endPeriod: c.startPeriod });
+    const { key, merged: _merged, ...entry } = c;
+    void _merged;
+    entries.push({ ...entry, id: `ocr-${key}` });
   }
 
   if (entries.length === 0) warnings.push("No classes could be read. Try a sharper, straight-on photo or enter the timetable manually.");
-  return { entries, daysFound: rows.length, columnsFound: columns.length, usedHeaders, warnings };
+  const last = rows[rows.length - 1];
+  const grid = fromLines ? { rows, rowGap, columns: columns.map((c) => ({ period: c.period, left: c.left!, right: c.right! })) } : undefined;
+  return { entries, daysFound: rows.length, columnsFound: columns.length, usedHeaders, warnings, gridBottom: last.y + rowGap * 0.5, grid };
 }

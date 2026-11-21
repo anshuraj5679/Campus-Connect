@@ -29,7 +29,7 @@ import {
 } from "./time";
 import { periodsAroundBreak, slotAt, slotForPeriod, type PeriodSlot } from "./periods";
 
-export type ClassType = "THEORY" | "LAB" | "TUTORIAL" | "MENTORING" | "MEETING";
+export type ClassType = "THEORY" | "LAB" | "TUTORIAL" | "MENTORING" | "MEETING" | "ACTIVITY";
 
 export type TimetableEntry = {
   id: string;

@@ -10,6 +10,8 @@ export const TYPE_STYLE: Record<ClassType, { cell: string; label: string }> = {
   TUTORIAL: { cell: "bg-fuchsia-50 border-fuchsia-500 text-fuchsia-950 dark:bg-fuchsia-950/40 dark:text-fuchsia-100", label: "Tutorial" },
   MENTORING: { cell: "bg-slate-100 border-slate-500 text-slate-900 dark:bg-slate-800 dark:text-slate-100", label: "Mentoring" },
   MEETING: { cell: "bg-rose-50 border-rose-500 text-rose-950 dark:bg-rose-950/40 dark:text-rose-100", label: "Meeting" },
+  // Library, Placement, Sports, IIC / Department Activity, Cultural…
+  ACTIVITY: { cell: "bg-amber-50 border-amber-500 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100", label: "Activity" },
 };
 
 export type GridEntry = {
