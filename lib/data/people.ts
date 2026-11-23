@@ -189,3 +189,10 @@ export async function approverLabel(viewer: { id: string; role: string; student:
   }
   return "the college admin";
 }
+
+/** The class teacher of a section, if one is assigned. */
+export async function classTeacherOfSection(sectionId: string): Promise<{ id: string; name: string } | null> {
+  const { data } = await createAdminClient().from("sections").select("class_teacher_id, teacher:profiles!sections_class_teacher_id_fkey(full_name)").eq("id", sectionId).maybeSingle();
+  const d = data as any;
+  return d?.class_teacher_id ? { id: d.class_teacher_id, name: d.teacher?.full_name ?? "Class teacher" } : null;
+}

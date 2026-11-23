@@ -24,6 +24,11 @@ export function TeacherCard({ teacher, status }: { teacher: DirectoryTeacher; st
             {teacher.clusterName ? ` · ${teacher.clusterName}` : ""}
             {roleBadge && <span className="ml-1.5 rounded bg-maroon/10 px-1.5 py-0.5 text-xs font-semibold text-maroon">{roleBadge}</span>}
           </p>
+          {teacher.classTeacherOf && (
+            <p className="mt-1">
+              <span className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-xs font-semibold text-primary">Class Teacher · {teacher.departmentCode} {teacher.classTeacherOf}</span>
+            </p>
+          )}
         </div>
       </div>
       <div className="mt-4 space-y-2">

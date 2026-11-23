@@ -68,9 +68,14 @@ export default async function TeacherProfilePage({ params }: { params: Promise<{
                 {teacher.departmentName}
                 {teacher.clusterName ? ` · ${teacher.clusterName}` : ""}
               </p>
-              {(teacher.role === "HOD" || teacher.role === "CLUSTER_HEAD") && isRole(teacher.role) && (
-                <p className="inline-block rounded bg-maroon/10 px-2 py-0.5 text-sm font-semibold text-maroon">{ROLE_LABEL[teacher.role]}</p>
-              )}
+              <div className="flex flex-wrap gap-1.5">
+                {(teacher.role === "HOD" || teacher.role === "CLUSTER_HEAD") && isRole(teacher.role) && (
+                  <p className="inline-block rounded bg-maroon/10 px-2 py-0.5 text-sm font-semibold text-maroon">{ROLE_LABEL[teacher.role]}</p>
+                )}
+                {teacher.classTeacherOf && (
+                  <p className="inline-block rounded bg-primary/10 px-2 py-0.5 text-sm font-semibold text-primary">Class Teacher · {teacher.departmentCode} Section {teacher.classTeacherOf}</p>
+                )}
+              </div>
               {teacher.cabin && (
                 <p className="flex items-center gap-1.5 pt-1 text-sm">
                   <MapPin aria-hidden className="size-4 text-muted-foreground" /> {teacher.cabin}

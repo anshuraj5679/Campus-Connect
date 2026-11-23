@@ -15,6 +15,8 @@ export type DirectoryTeacher = {
   cabin: string | null;
   subjects: string[];
   employeeId: string;
+  /** Section this teacher is class teacher of, e.g. "5J" */
+  classTeacherOf: string | null;
 };
 
 function mapTeacher(r: any): DirectoryTeacher {
@@ -32,11 +34,20 @@ function mapTeacher(r: any): DirectoryTeacher {
     cabin: r.cabin_location,
     subjects: r.subjects ?? [],
     employeeId: r.employee_id,
+    classTeacherOf: null,
   };
 }
 
 const SELECT =
   "user_id, employee_id, designation, department_id, cluster_id, cabin_location, subjects, profiles!inner(full_name, avatar_url, role, is_active, is_verified), departments(code, name), clusters(name)";
+
+/** teacherId → name of the section they are class teacher of. */
+async function classSections(ids: string[]): Promise<Map<string, string>> {
+  if (!ids.length) return new Map();
+  const supabase = await createClient();
+  const { data } = await supabase.from("sections").select("name, class_teacher_id").in("class_teacher_id", ids);
+  return new Map((data ?? []).map((s) => [s.class_teacher_id as string, s.name as string]));
+}
 
 /** Active, approved teachers (incl. Cluster Heads and HODs), optionally filtered. */
 export async function listTeachers(filters: { departmentId?: string; clusterId?: string } = {}): Promise<DirectoryTeacher[]> {
@@ -45,16 +56,19 @@ export async function listTeachers(filters: { departmentId?: string; clusterId?:
   if (filters.departmentId) q = q.eq("department_id", filters.departmentId);
   if (filters.clusterId) q = q.eq("cluster_id", filters.clusterId);
   const { data } = await q;
+  const classOf = await classSections((data ?? []).map((r: any) => r.user_id));
   // Teachers waiting for their Cluster Head's approval are not part of the cluster yet.
   return (data ?? [])
     .filter((r: any) => r.profiles?.is_verified || r.profiles?.role !== "TEACHER")
-    .map(mapTeacher).sort((a, b) => a.departmentCode.localeCompare(b.departmentCode) || a.fullName.localeCompare(b.fullName));
+    .map((r: any) => ({ ...mapTeacher(r), classTeacherOf: classOf.get(r.user_id) ?? null })).sort((a, b) => a.departmentCode.localeCompare(b.departmentCode) || a.fullName.localeCompare(b.fullName));
 }
 
 export async function getTeacher(id: string): Promise<DirectoryTeacher | null> {
   const supabase = await createClient();
   const { data } = await supabase.from("teacher_profiles").select(SELECT).eq("user_id", id).maybeSingle();
-  return data ? mapTeacher(data) : null;
+  if (!data) return null;
+  const classOf = await classSections([id]);
+  return { ...mapTeacher(data), classTeacherOf: classOf.get(id) ?? null };
 }
 
 export async function listDepartmentsAndClusters() {
