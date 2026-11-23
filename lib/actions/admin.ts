@@ -27,7 +27,11 @@ export async function setUserFlag(userId: string, flag: "is_active" | "is_verifi
     const me = await requireRole(["ADMIN"]);
     if (!uuid.safeParse(userId).success) return fail("Invalid user.");
     if (userId === me.id && flag === "is_active" && !value) return fail("You cannot deactivate your own account.");
-    const { error } = await admin().from("profiles").update({ [flag]: value }).eq("id", userId);
+    const patch =
+      flag === "is_verified"
+        ? { is_verified: value, verified_by: value ? me.id : null, verified_at: value ? new Date().toISOString() : null, rejected_at: null }
+        : { is_active: value, ...(value ? { rejected_at: null } : {}) };
+    const { error } = await admin().from("profiles").update(patch).eq("id", userId);
     if (error) return fail(error.message);
     await audit(me.id, flag === "is_active" ? (value ? "USER_ACTIVATED" : "USER_DEACTIVATED") : value ? "USER_VERIFIED" : "USER_UNVERIFIED", "profiles", userId);
     done();

@@ -3,6 +3,8 @@ import { AlarmClock, CircleCheckBig, Hourglass, Inbox, Users } from "lucide-reac
 import { HeroBanner, KpiCard } from "@/components/shared/kit";
 import { OnLeavePanel, UnpublishedPanel, UrgentComplaints } from "@/components/dashboards/panels";
 import { getViewer } from "@/lib/data/viewer";
+import { ApprovalsReminder, PendingSelfBanner } from "@/components/people/approval-banners";
+import { approverLabel, pendingApprovalsFor } from "@/lib/data/people";
 import { listComplaints } from "@/lib/data/complaints";
 import { listTeachers } from "@/lib/data/teachers";
 import { getAvailability } from "@/lib/data/availability";
@@ -37,8 +39,11 @@ export default async function ClusterHeadDashboardPage() {
 
   const clusterLabel = cluster ? `${(cluster as any).departments?.code} ${cluster.name}` : "No cluster assigned";
 
+  const [approver, toApprove] = await Promise.all([viewer.isVerified ? null : approverLabel(viewer), pendingApprovalsFor(viewer)]);
   return (
     <>
+      {approver && <PendingSelfBanner approver={approver} />}
+      <ApprovalsReminder students={toApprove.students} teachers={toApprove.teachers} studentsHref="/cluster-head/people?status=PENDING#students" teachersHref="/cluster-head/people#teachers" />
       <HeroBanner eyebrow={formatLongDate(now)} title={`${greetingFor(now)}, ${firstName(viewer.fullName)}`} subtitle={`Cluster Head · ${clusterLabel} · ${teachers.length} teachers`} />
       <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Open complaints" value={kpi.open} icon={Inbox} tone="blue" href="/cluster-head/complaints?status=OPEN" />

@@ -105,10 +105,11 @@ export async function loadRoutineTeachers(departmentId: string, clusterId: strin
   const admin = createAdminClient();
   const { data } = await admin
     .from("teacher_profiles")
-    .select("user_id, cluster_id, profiles!inner(full_name, is_active)")
+    .select("user_id, cluster_id, profiles!inner(full_name, is_active, is_verified, role)")
     .eq("department_id", departmentId)
     .eq("profiles.is_active", true);
   return (data ?? [])
+    .filter((t: any) => t.profiles.is_verified || t.profiles.role !== "TEACHER")
     .map((t: any) => ({ id: t.user_id as string, name: t.profiles.full_name as string, inCluster: t.cluster_id === clusterId }))
     .sort((a, b) => Number(b.inCluster) - Number(a.inCluster) || a.name.localeCompare(b.name));
 }

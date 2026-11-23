@@ -3,11 +3,23 @@ import { PageHeader } from "@/components/shared/page-header";
 import { ComplaintWizard } from "@/components/complaints/complaint-wizard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/session";
+import { getViewer } from "@/lib/data/viewer";
+import { PendingSelfBanner } from "@/components/people/approval-banners";
+import { approverLabel } from "@/lib/data/people";
 
 export const metadata: Metadata = { title: "Raise a complaint" };
 
 export default async function NewComplaintPage() {
-  await requireRole(["STUDENT"]);
+  const me = await requireRole(["STUDENT"]);
+  if (!me.isVerified) {
+    const viewer = await getViewer();
+    return (
+      <>
+        <PageHeader title="Raise a complaint" breadcrumbs={[{ label: "My Complaints", href: "/student/complaints" }, { label: "New" }]} />
+        <PendingSelfBanner approver={await approverLabel(viewer)} restriction="You can raise complaints once your account is approved." />
+      </>
+    );
+  }
   const { data } = await createAdminClient()
     .from("teacher_profiles")
     .select("user_id, profiles!inner(full_name, is_active), departments(code)")

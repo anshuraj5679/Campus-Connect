@@ -11,7 +11,10 @@ export type NotificationType =
   | "COMPLAINT_RESOLVED"
   | "TEACHER_UNAVAILABLE"
   | "TIMETABLE_PUBLISHED"
-  | "ANNOUNCEMENT";
+  | "ANNOUNCEMENT"
+  | "ACCOUNT_APPROVAL_REQUEST"
+  | "ACCOUNT_APPROVED"
+  | "CLASS_TEACHER_ASSIGNED";
 
 export type NotificationInput = {
   type: NotificationType;

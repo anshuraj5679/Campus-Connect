@@ -80,6 +80,19 @@ The seed creates 7 departments (CSE, AIML, CSBS, ECE, EEE, ME, CIVIL). CSE has 4
 
 Anyone can sign up as a **Student** (department + section, USN validated) or **Teacher** (department + cluster). They can also sign up as a **Cluster Head** or **HOD**, but each cluster has exactly one Cluster Head and each department exactly one HOD. Positions already filled are shown as taken, and the server claims the seat atomically (`UPDATE … WHERE head IS NULL`), so two people can never get the same one. Admin is never self-service. The Admin can verify, deactivate or reassign anyone.
 
+### Class teachers and account approval
+
+- **Class teacher:** every section has one, assigned by the Cluster Head on **Students & Teachers** from the cluster's approved teachers. A teacher can be class teacher of only one section.
+- **New students** show *Verification pending* until their section's class teacher approves them on **My Section**. While a section has no class teacher, the Cluster Head approves.
+  - A pending student can see their timetable and notices but cannot raise complaints.
+- **New teachers** of a cluster are approved by the Cluster Head. Until then they don't appear in Find a Teacher or on routines.
+- **New Cluster Heads** are approved by the HOD (on *Clusters*) or the admin.
+- The approver gets a notification and a dashboard reminder. Rejected registrations can't sign in, and can be restored later.
+- **Who sees what:**
+  - The Cluster Head sees every student and teacher in the cluster, with contact details.
+  - A class teacher sees only their own section's students.
+  - The database enforces this (migrations 0009–0010). Student contact details are visible only to the student, their class teacher, Cluster Head, HOD and the admin.
+
 ### Section routines (Cluster Head)
 
 The Cluster Head opens **Section Routines** and sees every section in their cluster: Published, Draft, or Not uploaded. They can also add a section before any student has joined.

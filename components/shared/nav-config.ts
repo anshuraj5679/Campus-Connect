@@ -8,6 +8,7 @@ import {
   Clock,
   FilePlus as FilePlus2,
   FileUp,
+  GraduationCap,
   House,
   Landmark,
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   Network,
   ScrollText,
   Settings,
+  UserCheck,
   UserSearch,
   Users,
   Wrench,
@@ -35,6 +37,7 @@ const teachingGroup: NavGroup = {
   items: [
     { label: "My Dashboard", href: "/teacher", icon: LayoutDashboard },
     { label: "Timetable", href: "/teacher/timetable", icon: CalendarDays },
+    { label: "My Section", href: "/teacher/my-section", icon: GraduationCap },
     { label: "Mark Unavailability", href: "/teacher/unavailability", icon: CalendarOff },
     { label: "Complaint Responses", href: "/teacher/complaints", icon: MessagesSquare },
   ],
@@ -76,6 +79,7 @@ export const NAV_BY_ROLE: Record<Role, NavGroup[]> = {
       items: [
         { label: "Cluster Overview", href: "/cluster-head", icon: LayoutDashboard },
         { label: "Section Routines", href: "/cluster-head/routines", icon: CalendarDays },
+        { label: "Students & Teachers", href: "/cluster-head/people", icon: UserCheck },
         { label: "Complaints", href: "/cluster-head/complaints", icon: MessageSquareExclamationPoint },
         { label: "Cluster Teachers", href: "/cluster-head/teachers", icon: Users },
         { label: "Announcements", href: "/cluster-head/announcements", icon: Megaphone },

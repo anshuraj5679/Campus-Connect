@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { LiveRefresh } from "@/components/shared/live-refresh";
 import { TimetableGrid, TypeLegend, TYPE_STYLE } from "@/components/shared/timetable-grid";
 import { getViewer } from "@/lib/data/viewer";
+import { PendingSelfBanner } from "@/components/people/approval-banners";
+import { approverLabel } from "@/lib/data/people";
 import { getCalendar } from "@/lib/data/calendar";
 import { getAvailability } from "@/lib/data/availability";
 import { getSectionSchedule } from "@/lib/data/section";
@@ -31,6 +33,7 @@ export default async function StudentHomePage() {
     return <EmptyState icon={UserSearch} title="Your academic profile is incomplete" description="Ask the college office to link your USN and section." />;
   }
   const parts = istParts(now);
+  const approver = viewer.isVerified ? null : await approverLabel(viewer);
   const [routine, teacherSchedule, notices, complaints] = await Promise.all([
     getPublishedRoutine(s.sectionId),
     getSectionSchedule(s.sectionId),
@@ -81,6 +84,7 @@ export default async function StudentHomePage() {
 
   return (
     <>
+      {approver && <PendingSelfBanner approver={approver} restriction="You can see your timetable and notices now; raising complaints opens once you are approved." />}
       <HeroBanner
         eyebrow={formatLongDate(now)}
         title={`${greetingFor(now)}, ${firstName(viewer.fullName)}`}

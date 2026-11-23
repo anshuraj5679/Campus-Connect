@@ -26,6 +26,8 @@ export type Viewer = CurrentUser & {
   /** Clusters this user heads / departments this user is HOD of. */
   clusterHeadOf: string[];
   hodOf: string[];
+  /** The section this user is class teacher of (at most one). */
+  classTeacherOf: { sectionId: string; name: string; clusterId: string } | null;
 };
 
 /** The signed-in user with academic context, loaded once per request. */
@@ -33,7 +35,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
   const user = await requireUser();
   const supabase = await createClient();
 
-  const [studentRes, teacherRes, clustersRes, deptsRes] = await Promise.all([
+  const [studentRes, teacherRes, clustersRes, deptsRes, classRes] = await Promise.all([
     supabase
       .from("student_profiles")
       .select("usn, section_id, section, semester, department_id, cluster_id, departments(code), clusters(name)")
@@ -46,6 +48,7 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       .maybeSingle(),
     supabase.from("clusters").select("id").eq("cluster_head_id", user.id),
     supabase.from("departments").select("id").eq("hod_id", user.id),
+    supabase.from("sections").select("id, name, cluster_id").eq("class_teacher_id", user.id).maybeSingle(),
   ]);
 
   const s = studentRes.data as any;
@@ -78,5 +81,6 @@ export const getViewer = cache(async (): Promise<Viewer> => {
       : null,
     clusterHeadOf: (clustersRes.data ?? []).map((c) => c.id),
     hodOf: (deptsRes.data ?? []).map((d) => d.id),
+    classTeacherOf: classRes.data ? { sectionId: classRes.data.id, name: classRes.data.name, clusterId: classRes.data.cluster_id } : null,
   };
 });

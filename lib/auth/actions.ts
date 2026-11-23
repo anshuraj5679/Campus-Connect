@@ -7,6 +7,8 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { isDemoMode } from "@/lib/config";
 import { changePasswordSchema, loginSchema, safeNextPath, staffSignupSchema, studentSignupSchema } from "@/lib/validators/auth";
 import { DEMO_ACCOUNTS, getDemoPassword } from "./demo";
+import { notify } from "@/lib/server/notify";
+import { studentApprover } from "@/lib/data/people";
 import { canAccessPath, homeForRole, isRole, type Role } from "./roles";
 
 export type AuthActionResult = { error: string } | undefined;
@@ -23,7 +25,7 @@ async function signInAndRoute(email: string, password: string, next: string | nu
     return { error: "Incorrect email or password." };
   }
 
-  const { data: profile } = await supabase.from("profiles").select("role, is_active").eq("id", data.user.id).maybeSingle();
+  const { data: profile } = await supabase.from("profiles").select("role, is_active, rejected_at").eq("id", data.user.id).maybeSingle();
 
   if (!profile || !isRole(profile.role)) {
     await supabase.auth.signOut();
@@ -31,7 +33,11 @@ async function signInAndRoute(email: string, password: string, next: string | nu
   }
   if (!profile.is_active) {
     await supabase.auth.signOut();
-    return { error: "Your account has been deactivated. Please contact the college office." };
+    return {
+      error: profile.rejected_at
+        ? "Your registration was not approved. If this is a mistake, contact your class teacher or Cluster Head."
+        : "Your account has been deactivated. Please contact the college office.",
+    };
   }
 
   const role: Role = profile.role;
@@ -201,7 +207,43 @@ export async function signupAction(input: unknown): Promise<AuthActionResult> {
   }
 
   await admin.from("profiles").update({ full_name: v.fullName }).eq("id", userId);
+  await notifyApprover(admin, v.role, userId, v.fullName, { sectionId: v.role === "STUDENT" ? sectionId : null, clusterId, departmentId: v.departmentId });
   return signInAndRoute(v.email, v.password, null);
+}
+
+/**
+ * Tell whoever approves the new account: class teacher (or Cluster Head) for a
+ * student, Cluster Head for a teacher, HOD for a Cluster Head.
+ */
+async function notifyApprover(
+  admin: ReturnType<typeof createAdminClient>,
+  role: string,
+  userId: string,
+  name: string,
+  where: { sectionId: string | null; clusterId: string | null; departmentId: string },
+) {
+  try {
+    if (role === "STUDENT" && where.sectionId) {
+      const approver = await studentApprover(where.sectionId);
+      const { data: sp } = await admin.from("student_profiles").select("usn, section").eq("user_id", userId).maybeSingle();
+      if (approver)
+        await notify([approver.id], {
+          type: "ACCOUNT_APPROVAL_REQUEST",
+          title: `New student in Section ${sp?.section ?? ""}: ${name}`,
+          body: `${name} (${sp?.usn ?? ""}) signed up and is waiting for your approval.`,
+          link: approver.role === "CLASS_TEACHER" ? "/teacher/my-section?status=PENDING" : "/cluster-head/people?status=PENDING#students",
+        });
+    } else if (role === "TEACHER" && where.clusterId) {
+      const { data: c } = await admin.from("clusters").select("cluster_head_id, name").eq("id", where.clusterId).maybeSingle();
+      if (c?.cluster_head_id)
+        await notify([c.cluster_head_id], { type: "ACCOUNT_APPROVAL_REQUEST", title: `New teacher in ${c.name}: ${name}`, body: `${name} signed up for your cluster and is waiting for your approval.`, link: "/cluster-head/people#teachers" });
+    } else if (role === "CLUSTER_HEAD") {
+      const { data: d } = await admin.from("departments").select("hod_id").eq("id", where.departmentId).maybeSingle();
+      if (d?.hod_id) await notify([d.hod_id], { type: "ACCOUNT_APPROVAL_REQUEST", title: `New Cluster Head: ${name}`, body: `${name} signed up as a Cluster Head and is waiting for approval.`, link: "/hod/clusters" });
+    }
+  } catch (err) {
+    console.error("notifyApprover", err); // never block sign-up on a notification
+  }
 }
 
 /** Change the signed-in user's password after re-checking the current one. */

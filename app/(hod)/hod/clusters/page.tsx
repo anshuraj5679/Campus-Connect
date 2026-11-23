@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Network } from "lucide-react";
 import { PageHeader } from "@/components/shared/page-header";
+import { ApprovalButtons } from "@/components/people/people-controls";
 import { EmptyState } from "@/components/shared/empty-state";
 import { LiveRefresh } from "@/components/shared/live-refresh";
 import { SectionCard } from "@/components/shared/kit";
@@ -22,7 +23,7 @@ export default async function HodClustersPage() {
   if (!deptId) return <EmptyState icon={Network} title="You are not assigned as HOD of a department" />;
   const admin = createAdminClient();
   const [{ data: clusters }, { data: sections }, teachers, complaints] = await Promise.all([
-    admin.from("clusters").select("id, name, head:profiles!clusters_cluster_head_id_fkey(id, full_name)").eq("department_id", deptId).order("name"),
+    admin.from("clusters").select("id, name, head:profiles!clusters_cluster_head_id_fkey(id, full_name, is_verified, is_active)").eq("department_id", deptId).order("name"),
     admin.from("sections").select("name, cluster_id").eq("department_id", deptId).order("name"),
     listTeachers({ departmentId: deptId }),
     listComplaints(viewer, { scope: "handler" }),
@@ -44,7 +45,13 @@ export default async function HodClustersPage() {
               icon={Network}
               description={`Cluster Head: ${c.head?.full_name ?? "vacant"} · Sections ${(sections ?? []).filter((s) => s.cluster_id === c.id).map((s) => s.name).join(", ") || "none"}`}
               action={
-                <span className="flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="flex flex-wrap items-center gap-2 text-xs font-semibold">
+                  {c.head && !c.head.is_verified && (
+                    <span className="flex items-center gap-2 rounded-full bg-status-busy-bg py-0.5 pl-2.5 pr-1 text-status-busy-fg">
+                      Cluster Head pending approval
+                      <ApprovalButtons userId={c.head.id} name={c.head.full_name} status={c.head.is_active ? "PENDING" : "REJECTED"} />
+                    </span>
+                  )}
                   <span className="rounded-full bg-muted px-2.5 py-1">{members.length} teachers</span>
                   <Link href="/hod/complaints?status=OPEN" className="rounded-full bg-status-in-class-bg px-2.5 py-1 text-status-in-class-fg">{open} open complaints</Link>
                   {leave > 0 && <span className="rounded-full bg-status-leave-bg px-2.5 py-1 text-status-leave-fg">{leave} on leave</span>}

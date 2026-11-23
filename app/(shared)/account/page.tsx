@@ -5,12 +5,14 @@ import { PageHeader } from "@/components/shared/page-header";
 import { SignOutButton } from "@/components/shared/sign-out-button";
 import { InfoList, PersonAvatar, SectionCard } from "@/components/shared/kit";
 import { getViewer } from "@/lib/data/viewer";
+import { approverLabel } from "@/lib/data/people";
 import { ROLE_LABEL } from "@/lib/auth/roles";
 
 export const metadata: Metadata = { title: "My Account" };
 
 export default async function AccountPage() {
   const v = await getViewer();
+  const approver = v.isVerified ? null : await approverLabel(v);
   const academic = v.student
     ? [
         { label: "USN", value: v.student.usn },
@@ -50,7 +52,7 @@ export default async function AccountPage() {
                   value: v.isVerified ? (
                     <span className="inline-flex items-center gap-1.5 text-status-available-fg"><BadgeCheck aria-hidden className="size-4 text-status-available" /> Verified by college</span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-status-busy-fg"><CircleAlert aria-hidden className="size-4 text-status-busy" /> Pending verification</span>
+                    <span className="inline-flex items-center gap-1.5 text-status-busy-fg"><CircleAlert aria-hidden className="size-4 shrink-0 text-status-busy" /> Pending verification · waiting for {approver}</span>
                   ),
                 },
               ]}

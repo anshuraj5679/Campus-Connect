@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { GraduationCap, Landmark, LoaderCircle, Network, Presentation, type LucideIcon } from "lucide-react";
@@ -53,6 +53,7 @@ export function SignupForm({ options }: { options: SignupOptions }) {
   const departmentId = watch("departmentId");
   const typedSection = normalizeSection(String(watch("section") ?? ""));
   const typedCluster = normalizeCluster(String(watch("cluster") ?? ""));
+  const clusterAutoFilled = useRef(false);
   const clusters = useMemo(() => options.clusters.filter((c) => c.departmentId === departmentId), [options.clusters, departmentId]);
   const sections = useMemo(() => options.sections.filter((s) => s.departmentId === departmentId), [options.sections, departmentId]);
   const existingSection = sections.find((s) => s.name === typedSection);
@@ -176,7 +177,10 @@ export function SignupForm({ options }: { options: SignupOptions }) {
                   // Fill in the cluster of an existing section to avoid mismatches
                   const s = sections.find((x) => x.name === normalizeSection(e.target.value));
                   const c = s && clusters.find((x) => x.id === s.clusterId);
-                  if (c && !watch("cluster")) setValue("cluster", c.name);
+                  if (c && !watch("cluster")) {
+                    setValue("cluster", c.name);
+                    clusterAutoFilled.current = true;
+                  }
                 },
               })}
             />
@@ -211,6 +215,13 @@ export function SignupForm({ options }: { options: SignupOptions }) {
               placeholder="3"
               autoComplete="off"
               {...register("cluster")}
+              onFocus={(e) => {
+                // Auto-filled from the section: select it so typing replaces instead of appending
+                if (clusterAutoFilled.current) {
+                  clusterAutoFilled.current = false;
+                  e.currentTarget.select();
+                }
+              }}
             />
             <datalist id="cluster-options">
               {clusters.map((c) => (

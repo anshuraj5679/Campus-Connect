@@ -36,16 +36,19 @@ function mapTeacher(r: any): DirectoryTeacher {
 }
 
 const SELECT =
-  "user_id, employee_id, designation, department_id, cluster_id, cabin_location, subjects, profiles!inner(full_name, avatar_url, role, is_active), departments(code, name), clusters(name)";
+  "user_id, employee_id, designation, department_id, cluster_id, cabin_location, subjects, profiles!inner(full_name, avatar_url, role, is_active, is_verified), departments(code, name), clusters(name)";
 
-/** Active teachers (incl. Cluster Heads and HODs), optionally filtered. */
+/** Active, approved teachers (incl. Cluster Heads and HODs), optionally filtered. */
 export async function listTeachers(filters: { departmentId?: string; clusterId?: string } = {}): Promise<DirectoryTeacher[]> {
   const supabase = await createClient();
   let q = supabase.from("teacher_profiles").select(SELECT).eq("profiles.is_active", true);
   if (filters.departmentId) q = q.eq("department_id", filters.departmentId);
   if (filters.clusterId) q = q.eq("cluster_id", filters.clusterId);
   const { data } = await q;
-  return (data ?? []).map(mapTeacher).sort((a, b) => a.departmentCode.localeCompare(b.departmentCode) || a.fullName.localeCompare(b.fullName));
+  // Teachers waiting for their Cluster Head's approval are not part of the cluster yet.
+  return (data ?? [])
+    .filter((r: any) => r.profiles?.is_verified || r.profiles?.role !== "TEACHER")
+    .map(mapTeacher).sort((a, b) => a.departmentCode.localeCompare(b.departmentCode) || a.fullName.localeCompare(b.fullName));
 }
 
 export async function getTeacher(id: string): Promise<DirectoryTeacher | null> {

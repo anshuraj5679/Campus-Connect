@@ -10,6 +10,8 @@ import { Countdown } from "@/components/shared/countdown";
 import { MeetingToggle } from "@/components/teacher/meeting-toggle";
 import { TYPE_STYLE } from "@/components/shared/timetable-grid";
 import { getViewer } from "@/lib/data/viewer";
+import { ApprovalsReminder, PendingSelfBanner } from "@/components/people/approval-banners";
+import { approverLabel, pendingApprovalsFor } from "@/lib/data/people";
 import { getAvailability } from "@/lib/data/availability";
 import { getCalendar } from "@/lib/data/calendar";
 import { createClient } from "@/lib/supabase/server";
@@ -41,8 +43,11 @@ export default async function TeacherDashboardPage() {
     ? `Your status is "${a.status.label}" right now. The meeting switch only applies to free periods and can't override it.`
     : null;
 
+  const [approver, toApprove] = await Promise.all([viewer.isVerified ? null : approverLabel(viewer), pendingApprovalsFor({ ...viewer, clusterHeadOf: [] })]);
   return (
     <>
+      {approver && <PendingSelfBanner approver={approver} restriction="Until then you don't appear in Find a Teacher or on section routines." />}
+      <ApprovalsReminder students={toApprove.students} teachers={0} studentsHref="/teacher/my-section?status=PENDING" />
       <HeroBanner
         eyebrow={formatLongDate(now)}
         title={`${greetingFor(now)}, ${firstName(viewer.fullName)}`}

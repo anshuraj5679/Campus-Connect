@@ -71,6 +71,7 @@ export async function previewRouting(input: { category: ComplaintCategory; teach
 export async function createComplaint(form: FormData): Promise<ActionResult<{ code: string }>> {
   return guard(async () => {
     const user = await requireRole(["STUDENT"]);
+    if (!user.isVerified) return fail("Your account is still waiting for your class teacher's approval. You can raise complaints once it is approved.");
     const p = parse(complaintSchema, {
       category: form.get("category"),
       teacherId: form.get("teacherId") ?? "",
